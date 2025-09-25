@@ -57,6 +57,7 @@ Aplicação web executada em Docker, desenvolvida em React Native e JavaScript.
      - Terror Alienígena
    - Menu suspenso de quantidade de caracteres
      - 2.500
+     - 3.500
    - Menu suspenso de quantidade de imagens
      - 10
    - Menu suspenso com o nome do canal onde o vídeo será publicado (buscar na tabela de usuários)
@@ -71,10 +72,10 @@ Aplicação web executada em Docker, desenvolvida em React Native e JavaScript.
      - Luzes e atmosfera
 2. Debitar 1 crédito para cada vídeo gerado (controle por usuário no banco de dados).
 3. Exibir, no final da página, quantos créditos serão utilizados na geração (cada idioma representa 1 vídeo; 10 vídeos em 3 idiomas debitam 30 créditos).
-4. Ao clicar em "Gerar roteiro com IA", chamar o webhook de geração de roteiro e aguardar a resposta para preencher automaticamente o campo de roteiro (um webhook por vídeo).
+4. Ao clicar em "Gerar roteiro com IA", chamar o webhook de geração de roteiro e aguardar a resposta para preencher automaticamente o campo de roteiro (um webhook por vídeo a ser gerado).
 5. Preencher os campos de texto com o roteiro retornado pelo webhook.
-6. Disponibilizar botão de concordar e gerar vídeos.
-7. Ao confirmar a geração, inserir todos os dados na tabela de fila de geração de vídeos.
+6. Disponibilizar botão de concordar e gerar vídeos quando estiver com todos os campos preenchidos.
+7. Ao confirmar a geração, inserir todos os dados na tabela de fila de geração de vídeos com o status de video em waiting.
 
 ## Backend (Docker)
 
@@ -83,7 +84,6 @@ Serviços executados em Docker e desenvolvidos em JavaScript para controlar a ge
 ### Funcionalidades
 - Controle de geração de vídeos e atualização do banco de dados
 - Gestão de pagamentos e créditos de usuários
-
 - Banco de dados Supabase
 - N8N responsável por receber os webhooks e devolver a saída esperada (workflows já prontos)
   - Workflows
@@ -112,7 +112,7 @@ Serviços executados em Docker e desenvolvidos em JavaScript para controlar a ge
     - `USER EMAIL`
     - `LANGUAGE`
     - `VIDEO YT URL`
-    - `STATUS` (Draft, Executing, Done)
+    - `STATUS` (Draft, Waiting, Executing, Done)
     - `GENRE`
     - `SCREENPLAY`
     - `DESCRIPTION`
@@ -132,3 +132,72 @@ Serviços executados em Docker e desenvolvidos em JavaScript para controlar a ge
     - `CREDITOS`
     - `YT CHANNEL` e `API KEYS`
     - `GENERATED VIDEO IDS`
+
+## Execução (Docker)
+
+- Pré‑requisitos: Docker Desktop e variáveis do Supabase (URL e chaves) se desejar autenticação real.
+- Suba os serviços:
+
+  - Crie um arquivo `.env` na raiz com as variáveis (veja `.env.example`).
+  - Rode: `docker compose up --build`
+
+- Serviços:
+- Frontend: http://localhost:3000
+- Backend: http://localhost:8080/health
+- Supabase (gateway): http://localhost:54321
+
+Rotas da UI:
+- Login e Cadastro: `/login`, `/register`
+- Dashboard: `/app`
+- Criação de Vídeos: `/create`
+- Meus Vídeos: `/videos`
+- YouTube (CRUD de canais): `/youtube`
+- Admin: `/admin`
+
+## Variáveis de ambiente
+
+Arquivo `.env` na raiz (exemplo mínimo):
+
+```
+SUPABASE_URL=
+SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+
+SUPABASE_URL_PUBLIC=http://localhost:54321
+
+# Se usar Supabase self-hosted (incluso neste compose)
+JWT_SECRET=super-secret-jwt
+
+PAYMENT_PROVIDER=stripe
+STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=
+
+N8N_BASE_URL=
+N8N_WEBHOOK_SCREENPLAY_URL=
+N8N_WEBHOOK_VIDEO_URL=
+N8N_CALLBACK_SECRET=
+
+# Desenvolvimento (sem Supabase):
+ALLOW_ANON=true
+ALLOW_ANON_ADMIN=true
+```
+
+No frontend, `VITE_API_BASE_URL` é apontado para `http://localhost:8080` via `docker-compose.yml`.
+
+## Endpoints do Backend (amostra)
+
+- `GET /health` → { status, version }
+- `GET /me` (privado) → perfil + créditos + canais
+- `GET /credits` (privado) → { credits }
+- `GET /genres?lang=pt-BR|en|es`
+- `GET/POST/DELETE /youtube/channels`
+- `POST /ai/screenplay` (privado)
+- `POST /videos`, `GET /videos`, `GET /videos/:id` (privado)
+- Admin: `GET /admin/users`, `PATCH /admin/users/:id`, `GET /admin/queue`
+- Pagamentos: `POST /payments/checkout`, `POST /payments/webhook`
+- N8N callbacks: `POST /n8n/screenplay/callback`, `POST /n8n/video/callback`
+
+Observações:
+- Se o Supabase não estiver configurado, o backend entra em modo degradado: autenticação é opcional (se `ALLOW_ANON=true`) e algumas rotas retornam dados simulados.
+- Este repositório inclui um Supabase local (DB + Auth + REST) atrás de um gateway Nginx em `http://localhost:54321`. O frontend deve usar essa URL no `VITE_SUPABASE_URL`. O backend resolve o gateway via DNS interno `http://supabase`.
+- Preencha `SUPABASE_ANON_KEY` e `SUPABASE_SERVICE_ROLE_KEY` com JWTs válidos para os papéis `anon` e `service_role` assinados com `JWT_SECRET`. Em desenvolvimento, você pode gerar chaves com expiracão longa usando o mesmo segredo.
