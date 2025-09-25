@@ -1,4 +1,4 @@
-﻿# DarkChannelAgent
+﻿# Dark Channel - AI Agent
 
 ## Frontend (Docker)
 
