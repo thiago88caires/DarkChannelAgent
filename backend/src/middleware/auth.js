@@ -49,11 +49,11 @@ export async function requireAdmin(req, res, next) {
   if (!supabase) return res.status(403).json({ code: 'forbidden', message: 'Admin only' });
   const { data, error } = await supabase
     .from('users')
-    .select('is_admin')
-    .eq('EMAIL', req.user.email)
+    .select('role')
+    .eq('email', req.user.email)
     .maybeSingle();
   if (error) return res.status(500).json({ code: 'db_error', message: error.message });
-  if (!data?.is_admin) return res.status(403).json({ code: 'forbidden', message: 'Admin only' });
+  if (data?.role !== 'admin') return res.status(403).json({ code: 'forbidden', message: 'Admin only' });
   return next();
 }
 

@@ -1,4 +1,4 @@
-services:
+﻿services:
   # API Backend
   backend:
     image: darkchannelagent-backend:latest
@@ -11,7 +11,7 @@ services:
       - PORT=8080
       - CORS_ORIGIN=http://localhost:3000
       # Supabase (internal URL hits the local gateway service name below)
-      - SUPABASE_URL=${SUPABASE_URL:-http://supabase}
+      - SUPABASE_URL=${SUPABASE_URL:-http://supabase:80}
       - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
       # N8N
       - N8N_BASE_URL=${N8N_BASE_URL}
@@ -28,7 +28,7 @@ services:
       - ALLOW_ANON_ADMIN=${ALLOW_ANON_ADMIN:-false}
     depends_on:
       supabase:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
       interval: 20s
@@ -38,7 +38,12 @@ services:
   # Web Frontend
   frontend:
     image: darkchannelagent-frontend:latest
-    build: ./frontend
+    build: 
+      context: ./frontend
+      args:
+        - VITE_SUPABASE_URL=${SUPABASE_URL_PUBLIC:-http://localhost:54321}
+        - VITE_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+        - VITE_API_BASE_URL=http://localhost:8080
     container_name: darkchannelagent-frontend
     ports:
       - "3000:3000"
@@ -49,81 +54,117 @@ services:
     depends_on:
       backend:
         condition: service_healthy
-
-  # --- Supabase (self-hosted minimal stack) ---
+  # --- Supabase (complete self-hosted stack) ---
+  # --- Supabase (using standard PostgreSQL) ---
   supabase-db:
-    image: supabase/postgres:17.6.1.008
+    image: postgres:15-alpine
     container_name: darkchannelagent-supabase-db
     environment:
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-your-super-secret-and-long-postgres-password}
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
     volumes:
-      - supabase-data:/var/lib/postgresql/data
-      - ./supabase/schema.sql:/docker-entrypoint-initdb.d/10-schema.sql:ro
-      - ./supabase/seed.sql:/docker-entrypoint-initdb.d/20-seed.sql:ro
+      - supabase-db-data:/var/lib/postgresql/data:Z
+      - ./supabase/init:/docker-entrypoint-initdb.d:Z
+    ports:
+      - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
+      test: ["CMD", "pg_isready", "-p", "5432", "-d", "postgres", "-U", "postgres"]
       timeout: 5s
-      retries: 10
+      interval: 5s
+      retries: 3
 
+  # Simple Supabase Auth service
   supabase-auth:
-    image: supabase/gotrue:v2.180.0
+    image: supabase/gotrue:v2.132.3
     container_name: darkchannelagent-supabase-auth
+    depends_on:
+      supabase-db:
+        condition: service_healthy
     environment:
       GOTRUE_API_HOST: 0.0.0.0
       GOTRUE_API_PORT: 9999
+      API_EXTERNAL_URL: ${API_EXTERNAL_URL:-http://localhost:54321}
       GOTRUE_DB_DRIVER: postgres
-      DATABASE_URL: postgresql://postgres:postgres@supabase-db:5432/postgres?sslmode=disable
-      GOTRUE_JWT_SECRET: ${JWT_SECRET}
-      GOTRUE_SITE_URL: http://localhost:3000
-      API_EXTERNAL_URL: http://localhost:54321
-      GOTRUE_DISABLE_SIGNUP: 'false'
-      GOTRUE_MAILER_AUTOCONFIRM: 'true'
-    depends_on:
-      supabase-db:
-        condition: service_healthy
+      GOTRUE_DB_DATABASE_URL: postgresql://authenticator:${POSTGRES_PASSWORD:-your-super-secret-and-long-postgres-password}@supabase-db:5432/postgres
+      GOTRUE_SITE_URL: ${SITE_URL:-http://localhost:3000}
+      GOTRUE_URI_ALLOW_LIST: ${ADDITIONAL_REDIRECT_URLS:-}
+      GOTRUE_DISABLE_SIGNUP: ${DISABLE_SIGNUP:-false}
+      GOTRUE_JWT_ADMIN_ROLES: service_role
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_JWT_EXP: ${JWT_EXPIRY:-3600}
+      GOTRUE_JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-token-with-at-least-32-characters-long}
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: ${ENABLE_EMAIL_SIGNUP:-true}
+      GOTRUE_MAILER_AUTOCONFIRM: ${ENABLE_EMAIL_AUTOCONFIRM:-true}
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:9999/health"]
-      interval: 15s
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9999/health"]
       timeout: 5s
-      retries: 10
+      interval: 5s
+      retries: 3
 
   supabase-rest:
-    image: postgrest/postgrest:v13.0.7
+    image: postgrest/postgrest:v12.0.1
     container_name: darkchannelagent-supabase-rest
-    environment:
-      PGRST_DB_URI: postgresql://postgres:postgres@supabase-db:5432/postgres
-      PGRST_DB_SCHEMA: public,auth,storage
-      PGRST_DB_ANON_ROLE: anon
-      PGRST_JWT_SECRET: ${JWT_SECRET}
-      PGRST_OPENAPI_SERVER_PROXY_URI: http://localhost:54321
     depends_on:
       supabase-db:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
+    environment:
+      PGRST_DB_URI: postgresql://authenticator:${POSTGRES_PASSWORD:-your-super-secret-and-long-postgres-password}@supabase-db:5432/postgres
+      PGRST_DB_SCHEMAS: ${PGRST_DB_SCHEMAS:-public,auth}
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-token-with-at-least-32-characters-long}
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+    command: postgrest
+    restart: unless-stopped
 
-  # Simple gateway to provide a single base URL exposing /auth/v1 and /rest/v1
+
+  supabase-meta:
+    image: supabase/postgres-meta:v0.86.0
+    container_name: darkchannelagent-supabase-meta
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    environment:
+      PG_META_DB_HOST: supabase-db
+      PG_META_DB_PORT: 5432
+      PG_META_DB_NAME: postgres
+      PG_META_DB_USER: postgres
+      PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD:-your-super-secret-and-long-postgres-password}
+      PG_META_DB_SCHEMAS: public,auth
+  # Gateway/Proxy service to expose Supabase at port 54321
   supabase:
     image: nginx:alpine
-    container_name: darkchannelagent-supabase-gateway
+    container_name: darkchannelagent-supabase-gateway  
     ports:
       - "54321:80"
     volumes:
-      - ./supabase/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./supabase/nginx-simple.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       supabase-auth:
         condition: service_healthy
       supabase-rest:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost/auth/v1/health"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
+        condition: service_started
 
+  supabase-studio:
+    image: supabase/studio:latest
+    container_name: darkchannelagent-supabase-studio
+    ports:
+      - "54323:3000"
+    environment:
+      STUDIO_PORT: 3000
+      STUDIO_ENVIRONMENT: local
+      SUPABASE_URL: http://supabase
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      STUDIO_PG_META_URL: http://supabase-meta:8080
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-your-super-secret-and-long-postgres-password}
+      NEXT_PUBLIC_DISABLE_TEXT_TO_SQL: 'true'
+    depends_on:
+      supabase-meta:
+        condition: service_started
 volumes:
-  supabase-data:
+  supabase-db-data:
+
+
+

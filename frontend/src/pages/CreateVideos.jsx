@@ -10,6 +10,7 @@ export default function CreateVideos() {
   const session = useAuthStore(s => s.session)
   const token = session?.access_token
   const [me, setMe] = React.useState(null)
+  const [profileError, setProfileError] = React.useState('')
   const [count, setCount] = React.useState(1)
   const [languages, setLanguages] = React.useState([])
   const [genre, setGenre] = React.useState('')
@@ -21,25 +22,70 @@ export default function CreateVideos() {
   const [notice, setNotice] = React.useState('')
 
   const totalCredits = count * languages.length
+  const creditsAvailable = me?.credits ?? 0
 
   React.useEffect(() => {
-    if (!token) return
-    fetch(`${API_BASE_URL}/me`, { headers: { Authorization: `Bearer ${token}` }})
-      .then(r => r.json()).then(j => { setMe(j); if (j.channels?.length) setChannelId(j.channels[0].id) })
-      .catch(() => setMe(null))
+    if (!token) {
+      setMe(null)
+      setChannelId('')
+      return
+    }
+    let cancelled = false
+    async function loadProfile() {
+      setProfileError('')
+      try {
+        const res = await fetch(`${API_BASE_URL}/me`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+        const payload = await res.json()
+        if (!res.ok) throw new Error(payload?.message || 'Falha ao carregar perfil')
+        if (cancelled) return
+        setMe(payload)
+        setChannelId(payload.channels?.[0]?.id || '')
+      } catch (err) {
+        if (cancelled) return
+        setProfileError(err.message || 'Falha ao carregar perfil')
+        setMe(null)
+        setChannelId('')
+      }
+    }
+    loadProfile()
+    return () => { cancelled = true }
   }, [token])
 
-  // Load genres per language when needed
   async function ensureGenres(lang) {
-    if (genresByLang[lang]) return
-    const res = await fetch(`${API_BASE_URL}/genres?lang=${encodeURIComponent(lang)}`)
-    const list = await res.json()
-    setGenresByLang(prev => ({ ...prev, [lang]: list }))
+    if (genresByLang[lang]) return true
+    try {
+      const res = await fetch(`${API_BASE_URL}/genres?lang=${encodeURIComponent(lang)}`)
+      const bodyText = await res.text()
+      let payload
+      try {
+        payload = JSON.parse(bodyText)
+      } catch {
+        payload = bodyText
+      }
+      if (!res.ok) {
+        const message = typeof payload === 'object' && payload !== null && payload.message
+          ? payload.message
+          : 'Falha ao carregar generos'
+        throw new Error(message)
+      }
+      const list = Array.isArray(payload) ? payload : []
+      if (!Array.isArray(payload)) {
+        console.warn('Resposta inesperada para generos', payload)
+      }
+      setGenresByLang(prev => ({ ...prev, [lang]: list }))
+      return true
+    } catch (err) {
+      console.error('Erro ao buscar generos', err)
+      setGenresByLang(prev => ({ ...prev, [lang]: [] }))
+      setNotice(err.message || 'Falha ao carregar generos')
+      return false
+    }
   }
 
   function onSelectGenre(value) {
     setGenre(value)
-    // Pre-fill fields for selected languages from genre record
     const next = { ...fieldsByLanguage }
     for (const lang of languages) {
       const items = genresByLang[lang] || []
@@ -62,9 +108,11 @@ export default function CreateVideos() {
   }
 
   async function generateScript(lang) {
-    setBusy(true); setNotice('')
+    setBusy(true)
+    setNotice('')
     try {
-      await ensureGenres(lang)
+      const ready = await ensureGenres(lang)
+      if (!ready) throw new Error('Falha ao carregar generos')
       const idk = cryptoLike()
       const payload = {
         language: lang,
@@ -97,6 +145,8 @@ export default function CreateVideos() {
   }
 
   function isValid() {
+    if (!me) return false
+    if (profileError) return false
     if (count < 1 || count > 10) return false
     if (!genre) return false
     if (!languages.length) return false
@@ -106,14 +156,15 @@ export default function CreateVideos() {
       const f = fieldsByLanguage[lang] || {}
       if (!f.screenplay || !f.screenplay.trim()) return false
     }
-    if ((me?.credits ?? 0) < totalCredits) return false
+    if (creditsAvailable < totalCredits) return false
     return true
   }
 
   async function onSubmit(e) {
     e.preventDefault()
     if (!isValid()) return
-    setBusy(true); setNotice('')
+    setBusy(true)
+    setNotice('')
     try {
       const payload = {
         count: Number(count),
@@ -130,29 +181,41 @@ export default function CreateVideos() {
         body: JSON.stringify(payload)
       })
       const j = await res.json()
-      if (!res.ok) throw new Error(j?.message || 'Falha ao criar vídeos')
-      // Ajusta saldo local
-      setMe(m => ({ ...m, credits: (m.credits || 0) - totalCredits }))
+      if (!res.ok) throw new Error(j?.message || 'Falha ao criar videos')
+      setMe(m => m ? { ...m, credits: Math.max(0, (m.credits || 0) - totalCredits) } : m)
       setNotice(`Solicitado com sucesso. Jobs: ${j.jobIds?.length || 0}`)
     } catch (e) {
-      setNotice(e.message || 'Erro ao enviar geração')
+      setNotice(e.message || 'Erro ao enviar geracao')
     } finally {
       setBusy(false)
     }
   }
 
+  if (!token) {
+    return <div>Faca login para acessar esta pagina.</div>
+  }
+
+  if (profileError) {
+    return <div style={{ color: 'tomato' }}>{profileError}</div>
+  }
+
+  if (!me) {
+    return <div>Carregando perfil...</div>
+  }
+
   return (
     <form onSubmit={onSubmit} style={{ display: 'grid', gap: 12, maxWidth: 900 }}>
-      <h2>Criar Vídeos</h2>
+      <h2>Criar Videos</h2>
       <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
         <CreditBadge credits={me?.credits} />
-        <span>Necessários: <strong>{totalCredits}</strong></span>
+        <span>Necessarios: <strong>{totalCredits}</strong></span>
+        <span style={{ marginLeft: 'auto' }}>Creditos disponiveis: {creditsAvailable}</span>
       </div>
 
       <label>
-        Quantidade de vídeos (1..10)
+        Quantidade de videos (1..10)
         <input type="number" min={1} max={10} value={count}
-               onChange={e => setCount(Math.max(1, Math.min(10, Number(e.target.value||1))))} />
+               onChange={e => setCount(Math.max(1, Math.min(10, Number(e.target.value || 1))))} />
       </label>
 
       <div>
@@ -184,19 +247,16 @@ export default function CreateVideos() {
         </label>
       </div>
 
-      {/* Genre selection (per language DB but a single chosen genre name) */}
       <label>
-        Gênero
+        Genero
         <select value={genre} onChange={e => onSelectGenre(e.target.value)}>
           <option value="">Selecione</option>
-          {/* Show PT list by default or first selected language list */}
           {(genresByLang[languages[0] || 'pt-BR'] || []).map(g => (
             <option key={g.GENRE} value={g.GENRE}>{g.GENRE}</option>
           ))}
         </select>
       </label>
 
-      {/* Text fields per language */}
       {languages.map(lang => (
         <fieldset key={lang} style={{ border: '1px solid #eee', padding: 12 }}>
           <legend>{(allLanguages.find(l => l.code === lang)?.label) || lang}</legend>
@@ -222,12 +282,12 @@ export default function CreateVideos() {
                         onChange={e => setLangField(lang, 'elements', e.target.value)} />
             </label>
             <label>
-              Regras de composição
+              Regras de composicao
               <textarea rows={2} value={fieldsByLanguage[lang]?.rules || ''}
                         onChange={e => setLangField(lang, 'rules', e.target.value)} />
             </label>
             <label>
-              Técnicas
+              Tecnicas
               <textarea rows={2} value={fieldsByLanguage[lang]?.techniques || ''}
                         onChange={e => setLangField(lang, 'techniques', e.target.value)} />
             </label>
@@ -241,13 +301,17 @@ export default function CreateVideos() {
       ))}
 
       <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-        <strong>Total de créditos a utilizar: {totalCredits}</strong>
+        <strong>Total de creditos a utilizar: {totalCredits}</strong>
         <button type="submit" disabled={!isValid() || busy}>
-          Concordo e gerar vídeos
+          Concordo e gerar videos
         </button>
       </div>
 
-      {notice && <div style={{ color: notice.startsWith('Erro') || notice.startsWith('Falha') ? 'tomato' : 'green' }}>{notice}</div>}
+      {notice && (
+        <div style={{ color: notice.startsWith('Erro') || notice.startsWith('Falha') ? 'tomato' : 'green' }}>
+          {notice}
+        </div>
+      )}
     </form>
   )
 }
@@ -255,4 +319,3 @@ export default function CreateVideos() {
 function cryptoLike() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36)
 }
-

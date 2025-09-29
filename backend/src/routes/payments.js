@@ -1,4 +1,4 @@
-import { Router } from 'express';
+﻿import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { getPayments } from '../services/payments.js';
 import { getSupabase } from '../services/supabase.js';
@@ -26,15 +26,17 @@ payments.post('/payments/webhook', async (req, res) => {
     if (userEmail && credits) {
       const { data: user, error: uErr } = await supabase
         .from('users')
-        .select('CREDITOS')
-        .eq('EMAIL', userEmail)
+        .select('credits')
+        .eq('email', userEmail)
         .maybeSingle();
       if (!uErr && user) {
-        const next = (user.CREDITOS || 0) + Number(credits);
-        await supabase.from('users').update({ CREDITOS: next }).eq('EMAIL', userEmail);
+        const next = (user.credits || 0) + Number(credits);
+        await supabase.from('users').update({ credits: next }).eq('email', userEmail);
       }
     }
   }
   res.json({ received: true });
 });
+
+
 
