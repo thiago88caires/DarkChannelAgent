@@ -57,32 +57,8 @@
     networks:
       - app-network
 
-networks:
-  app-network:
-    driver: bridge
-  Servers:
-    name: Servers
-    external: true
-
-  # Web Frontend
-  frontend:
-    image: darkchannelagent-frontend:latest
-    build: 
-      context: ./frontend
-      args:
-        - VITE_SUPABASE_URL=${SUPABASE_URL_PUBLIC:-http://localhost:54321}
-        - VITE_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
-        - VITE_API_BASE_URL=http://localhost:8080
-    container_name: darkchannelagent-frontend
-    ports:
-      - "3000:3000"
-    environment:
-      - VITE_SUPABASE_URL=${SUPABASE_URL_PUBLIC:-http://localhost:54321}
-      - VITE_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
-      - VITE_API_BASE_URL=http://localhost:8080
-    depends_on:
-      backend:
-        condition: service_healthy
+    networks:
+      - app-network
   # --- Supabase (complete self-hosted stack) ---
   # --- Supabase (using standard PostgreSQL) ---
   supabase-db:

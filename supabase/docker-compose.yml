@@ -70,6 +70,24 @@ services:
         ipv4_address: 172.16.0.32
     restart: unless-stopped
 
+  # Postgres Meta service (required for Studio)
+  meta:
+    image: supabase/postgres-meta:v0.86.0
+    container_name: supabase-meta
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PG_META_PORT: 8080
+      PG_META_DB_HOST: 172.16.0.30
+      PG_META_DB_PORT: 5432
+      PG_META_DB_NAME: postgres
+      PG_META_DB_USER: postgres
+      PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD:-your-super-secret-and-long-postgres-password}
+    networks:
+      Servers:
+        ipv4_address: 172.16.0.35
+
   # Gateway/Proxy to expose services
   gateway:
     image: nginx:alpine
@@ -81,6 +99,8 @@ services:
         condition: service_healthy
       rest:
         condition: service_started
+      meta:
+        condition: service_started
     networks:
       Servers:
         ipv4_address: 172.16.0.33
@@ -89,13 +109,18 @@ services:
   studio:
     image: supabase/studio:latest
     container_name: supabase-studio
+    ports:
+      - "54323:3000"
     environment:
-      - SUPABASE_URL=http://172.16.0.33
-      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOjE3NTg4MTk0MzUsImlzcyI6InN1cGFiYXNlIiwiZXhwIjoyMDc0MzUyMjM1LCJyb2xlIjoiYW5vbiJ9.pg7IFMNQWCRTGRwpV_TwB21T2mMq6YubXYtWKr18wV8}
-      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOjE3NTg4MTk0MzUsImlzcyI6InN1cGFiYXNlIiwiZXhwIjoyMDc0MzUyMjM1LCJyb2xlIjoic2VydmljZV9yb2xlIn0.GKk3cYuD-Y1n-i0_V6iit7l7eI7hqFP-alCwIQv8QlU}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-your-super-secret-and-long-postgres-password}
+      STUDIO_PORT: 3000
+      SUPABASE_URL: http://172.16.0.33
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOjE3NTg4MTk0MzUsImlzcyI6InN1cGFiYXNlIiwiZXhwIjoyMDc0MzUyMjM1LCJyb2xlIjoiYW5vbiJ9.pg7IFMNQWCRTGRwpV_TwB21T2mMq6YubXYtWKr18wV8}
+      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOjE3NTg4MTk0MzUsImlzcyI6InN1cGFiYXNlIiwiZXhwIjoyMDc0MzUyMjM1LCJyb2xlIjoic2VydmljZV9yb2xlIn0.GKk3cYuD-Y1n-i0_V6iit7l7eI7hqFP-alCwIQv8QlU}
+      STUDIO_PG_META_URL: http://172.16.0.35:8080
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-your-super-secret-and-long-postgres-password}
     depends_on:
       - gateway
+      - meta
     networks:
       Servers:
         ipv4_address: 172.16.0.34
