@@ -1,2 +1,0 @@
-# This file keeps the pgdata directory in git
-# The actual PostgreSQL data files are ignored by .gitignore
