@@ -41,8 +41,16 @@ ALTER ROLE authenticator SET search_path = auth, public;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO service_role;
 
+-- Drop tables if they exist (for clean reinstall)
+DROP TABLE IF EXISTS public.videos CASCADE;
+DROP TABLE IF EXISTS public.youtube_channels CASCADE;
+DROP TABLE IF EXISTS public.users CASCADE;
+DROP TABLE IF EXISTS public.genres_pt_br CASCADE;
+DROP TABLE IF EXISTS public.genres_en CASCADE;
+DROP TABLE IF EXISTS public.genres_es CASCADE;
+
 -- Genres lookup tables
-CREATE TABLE IF NOT EXISTS public.genres_pt_br (
+CREATE TABLE public.genres_pt_br (
   "GENRE" text PRIMARY KEY,
   "DESCRIPTION" text,
   "STRUCTURE" text,
@@ -57,7 +65,7 @@ CREATE TABLE IF NOT EXISTS public.genres_pt_br (
   updated_at timestamp with time zone DEFAULT timezone('utc', now())
 );
 
-CREATE TABLE IF NOT EXISTS public.genres_en (
+CREATE TABLE public.genres_en (
   "GENRE" text PRIMARY KEY,
   "DESCRIPTION" text,
   "STRUCTURE" text,
@@ -72,7 +80,7 @@ CREATE TABLE IF NOT EXISTS public.genres_en (
   updated_at timestamp with time zone DEFAULT timezone('utc', now())
 );
 
-CREATE TABLE IF NOT EXISTS public.genres_es (
+CREATE TABLE public.genres_es (
   "GENRE" text PRIMARY KEY,
   "DESCRIPTION" text,
   "STRUCTURE" text,
@@ -88,7 +96,7 @@ CREATE TABLE IF NOT EXISTS public.genres_es (
 );
 
 -- Users and video workflow tables
-CREATE TABLE IF NOT EXISTS public.users (
+CREATE TABLE public.users (
   id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
   created_at timestamp with time zone DEFAULT timezone('utc', now()),
   name text,
@@ -100,7 +108,7 @@ CREATE TABLE IF NOT EXISTS public.users (
   preferred_language text
 );
 
-CREATE TABLE IF NOT EXISTS public.youtube_channels (
+CREATE TABLE public.youtube_channels (
   id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
   created_at timestamp with time zone DEFAULT timezone('utc', now()),
   user_email text NOT NULL REFERENCES public.users(email) ON DELETE CASCADE,
@@ -108,9 +116,9 @@ CREATE TABLE IF NOT EXISTS public.youtube_channels (
   oauth_encrypted text
 );
 
-CREATE INDEX IF NOT EXISTS youtube_channels_user_email_idx ON public.youtube_channels(user_email);
+CREATE INDEX youtube_channels_user_email_idx ON public.youtube_channels(user_email);
 
-CREATE TABLE IF NOT EXISTS public.videos (
+CREATE TABLE public.videos (
   id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
   created_at timestamp with time zone DEFAULT timezone('utc', now()),
   video_id text UNIQUE NOT NULL,
@@ -135,6 +143,27 @@ CREATE TABLE IF NOT EXISTS public.videos (
   character_count integer
 );
 
-CREATE INDEX IF NOT EXISTS videos_user_email_idx ON public.videos(user_email);
-CREATE INDEX IF NOT EXISTS videos_status_idx ON public.videos(status);
+CREATE INDEX videos_user_email_idx ON public.videos(user_email);
+CREATE INDEX videos_status_idx ON public.videos(status);
+
+-- Grant permissions on new tables
+GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO authenticated;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon;
+
+-- Enable RLS on tables
+ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.youtube_channels ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.videos ENABLE ROW LEVEL SECURITY;
+
+-- Create RLS policies
+CREATE POLICY "Users can view their own data" ON public.users FOR ALL USING (email = auth.email());
+CREATE POLICY "Users can manage their channels" ON public.youtube_channels FOR ALL USING (user_email = auth.email());
+CREATE POLICY "Users can manage their videos" ON public.videos FOR ALL USING (user_email = auth.email());
+
+-- Service role can bypass RLS
+CREATE POLICY "Service role can access all" ON public.users FOR ALL TO service_role USING (true);
+CREATE POLICY "Service role can access all channels" ON public.youtube_channels FOR ALL TO service_role USING (true);
+CREATE POLICY "Service role can access all videos" ON public.videos FOR ALL TO service_role USING (true);
 

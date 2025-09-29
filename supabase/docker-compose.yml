@@ -10,10 +10,8 @@ services:
       POSTGRES_DB: postgres
       POSTGRES_USER: postgres
     volumes:
-      - supabase-db-data:/var/lib/postgresql/data:Z
+      - ./data/postgres:/var/lib/postgresql/data:Z
       - ./init:/docker-entrypoint-initdb.d:Z
-    ports:
-      - "5432:5432"
     networks:
       Servers:
         ipv4_address: 172.16.0.30
@@ -33,10 +31,10 @@ services:
     environment:
       GOTRUE_API_HOST: 0.0.0.0
       GOTRUE_API_PORT: 9999
-      API_EXTERNAL_URL: ${API_EXTERNAL_URL:-http://localhost:54321}
+      API_EXTERNAL_URL: ${API_EXTERNAL_URL:-http://172.16.0.33}
       GOTRUE_DB_DRIVER: postgres
       GOTRUE_DB_DATABASE_URL: postgresql://authenticator:${POSTGRES_PASSWORD:-your-super-secret-and-long-postgres-password}@172.16.0.30:5432/postgres
-      GOTRUE_SITE_URL: ${SITE_URL:-http://localhost:3000}
+      GOTRUE_SITE_URL: ${SITE_URL:-http://172.16.0.33}
       GOTRUE_URI_ALLOW_LIST: ${ADDITIONAL_REDIRECT_URLS:-}
       GOTRUE_DISABLE_SIGNUP: ${DISABLE_SIGNUP:-false}
       GOTRUE_JWT_ADMIN_ROLES: service_role
@@ -78,8 +76,6 @@ services:
   gateway:
     image: nginx:alpine
     container_name: supabase-gateway
-    ports:
-      - "54321:80"
     volumes:
       - ./nginx-simple.conf:/etc/nginx/nginx.conf:ro
     depends_on:
@@ -95,10 +91,8 @@ services:
   studio:
     image: supabase/studio:latest
     container_name: supabase-studio
-    ports:
-      - "3001:3000"
     environment:
-      - SUPABASE_URL=http://172.16.0.33:80
+      - SUPABASE_URL=http://172.16.0.33
       - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOjE3NTg4MTk0MzUsImlzcyI6InN1cGFiYXNlIiwiZXhwIjoyMDc0MzUyMjM1LCJyb2xlIjoiYW5vbiJ9.pg7IFMNQWCRTGRwpV_TwB21T2mMq6YubXYtWKr18wV8}
       - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOjE3NTg4MTk0MzUsImlzcyI6InN1cGFiYXNlIiwiZXhwIjoyMDc0MzUyMjM1LCJyb2xlIjoic2VydmljZV9yb2xlIn0.GKk3cYuD-Y1n-i0_V6iit7l7eI7hqFP-alCwIQv8QlU}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-your-super-secret-and-long-postgres-password}
@@ -107,9 +101,6 @@ services:
     networks:
       Servers:
         ipv4_address: 172.16.0.34
-
-volumes:
-  supabase-db-data:
 
 networks:
   Servers:

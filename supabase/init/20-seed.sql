@@ -14,6 +14,16 @@ values
   ('Terror Alienigena', 'Suspenso espacial con criaturas desconocidas', 'Introduccion, Encuentro, Confrontacion, Cierre', 'Oscuro, tenso', 'Susurros en el Vacio', 'Una tripulacion encuentra senales de vida en una estacion abandonada.', 'terror, alien, espacio', 'Naves, pasillos, sombras', 'Regla de tercios, lineas guia', 'Primeros planos, cortes rapidos', 'Luces frias, niebla, estroboscopica')
 on conflict ("GENRE") do nothing;
 
+-- Insert your user with unlimited credits
+insert into public.users (email, name, credits, role)
+values
+  ('thiago88caires@gmail.com', 'Thiago Caires', 999999999, 'admin')
+on conflict (email) do update set 
+  name = excluded.name,
+  credits = excluded.credits,
+  role = excluded.role;
+
+-- Insert demo user
 insert into public.users (email, name, credits, role)
 values
   ('demo@darkchannel.dev', 'Demo User', 50, 'admin')

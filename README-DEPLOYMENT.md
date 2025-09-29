@@ -152,13 +152,18 @@ DarkChannelAgent/
 ├── supabase/
 │   ├── docker-compose.yml    # Supabase services
 │   ├── .env                  # Configurações do Supabase
-│   ├── init/                 # Scripts de inicialização do DB
-│   └── nginx-simple.conf     # Configuração do gateway
-├── docker-compose.yml        # Aplicação principal
-├── .env                      # Configurações da aplicação
-├── manage.ps1               # Script Windows
-├── manage.sh                # Script Linux/Mac
-└── README-DEPLOYMENT.md     # Este arquivo
+│   ├── .gitignore           # Ignora dados do banco
+│   ├── data/
+│   │   └── postgres/        # Dados do PostgreSQL (pasta local)
+│   ├── init/                # Scripts de inicialização do DB
+│   ├── nginx-simple.conf    # Configuração do gateway
+│   ├── start-supabase.sh    # Script Linux/Mac
+│   └── start-supabase.bat   # Script Windows
+├── docker-compose.yml       # Aplicação principal
+├── .env                     # Configurações da aplicação
+├── manage.ps1              # Script Windows
+├── manage.sh               # Script Linux/Mac
+└── README-DEPLOYMENT.md    # Este arquivo
 ```
 
 ## 🔄 Fluxo de Desenvolvimento
@@ -192,15 +197,16 @@ docker network create --driver bridge --subnet=172.16.0.0/24 Servers
 ### 🔗 **Conectividade de Rede:**
 
 Os serviços se comunicam através da rede "Servers":
-- Backend conecta em: `http://172.16.0.33:80` (Nginx Gateway)
-- Frontend conecta em: `http://localhost:54321` (porta mapeada)
-- Studio interface: `http://localhost:3001` (porta mapeada)
+- Backend conecta em: `http://172.16.0.33` (Nginx Gateway)
+- Frontend conecta em: `http://localhost:54321` (porta mapeada se necessário)
+- Studio interface: `http://172.16.0.34:3000` (acesso direto pelo IP)
 
 ## 🛠️ Vantagens da Separação
 
 - ✅ **Supabase independente** - pode rodar sozinho
 - ✅ **Interface web** para gerenciar dados
 - ✅ **Desenvolvimento isolado** - restart apenas o que precisa
-- ✅ **Banco persistente** - dados não se perdem
+- ✅ **Dados persistentes locais** - armazenados em `./supabase/data/postgres`
+- ✅ **Fácil backup** - copiar pasta de dados
 - ✅ **Fácil debugging** - logs separados
 - ✅ **Produção simples** - deploy independente
