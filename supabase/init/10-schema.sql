@@ -48,52 +48,30 @@ DROP TABLE IF EXISTS public.users CASCADE;
 DROP TABLE IF EXISTS public.genres_pt_br CASCADE;
 DROP TABLE IF EXISTS public.genres_en CASCADE;
 DROP TABLE IF EXISTS public.genres_es CASCADE;
+DROP TABLE IF EXISTS public.genres CASCADE;
 
--- Genres lookup tables
-CREATE TABLE public.genres_pt_br (
-  "GENRE" text PRIMARY KEY,
-  "DESCRIPTION" text,
-  "STRUCTURE" text,
-  "TONE" text,
-  "VIDEO TITLE" text,
-  "VIDEO DESCRIPTION" text,
-  "VIDEO TAGS" text,
-  "ELEMENTS" text,
-  "COMPOSITION RULES" text,
-  "TECHNIQUES" text,
-  "LIGHTING AND ATMOSPHERE" text,
-  updated_at timestamp with time zone DEFAULT timezone('utc', now())
+-- Consolidated genres table with language support
+CREATE TABLE public.genres (
+  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  language text NOT NULL CHECK (language IN ('pt-BR', 'en', 'es')),
+  genre text NOT NULL,
+  description text,
+  structure text,
+  tone text,
+  video_title text,
+  video_description text,
+  video_tags text,
+  elements text,
+  composition_rules text,
+  techniques text,
+  lighting_and_atmosphere text,
+  created_at timestamp with time zone DEFAULT timezone('utc', now()),
+  updated_at timestamp with time zone DEFAULT timezone('utc', now()),
+  UNIQUE(language, genre)
 );
 
-CREATE TABLE public.genres_en (
-  "GENRE" text PRIMARY KEY,
-  "DESCRIPTION" text,
-  "STRUCTURE" text,
-  "TONE" text,
-  "VIDEO TITLE" text,
-  "VIDEO DESCRIPTION" text,
-  "VIDEO TAGS" text,
-  "ELEMENTS" text,
-  "COMPOSITION RULES" text,
-  "TECHNIQUES" text,
-  "LIGHTING AND ATMOSPHERE" text,
-  updated_at timestamp with time zone DEFAULT timezone('utc', now())
-);
-
-CREATE TABLE public.genres_es (
-  "GENRE" text PRIMARY KEY,
-  "DESCRIPTION" text,
-  "STRUCTURE" text,
-  "TONE" text,
-  "VIDEO TITLE" text,
-  "VIDEO DESCRIPTION" text,
-  "VIDEO TAGS" text,
-  "ELEMENTS" text,
-  "COMPOSITION RULES" text,
-  "TECHNIQUES" text,
-  "LIGHTING AND ATMOSPHERE" text,
-  updated_at timestamp with time zone DEFAULT timezone('utc', now())
-);
+CREATE INDEX genres_language_idx ON public.genres(language);
+CREATE INDEX genres_genre_idx ON public.genres(genre);
 
 -- Users and video workflow tables
 CREATE TABLE public.users (
@@ -153,15 +131,20 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO authentic
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon;
 
 -- Enable RLS on tables (but keep policies simple)
+ALTER TABLE public.genres ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.youtube_channels ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.videos ENABLE ROW LEVEL SECURITY;
 
 -- Simple RLS policies that work without auth.email()
 -- Service role can access everything
+CREATE POLICY "Service role can access all genres" ON public.genres FOR ALL TO service_role USING (true);
 CREATE POLICY "Service role can access all users" ON public.users FOR ALL TO service_role USING (true);
 CREATE POLICY "Service role can access all channels" ON public.youtube_channels FOR ALL TO service_role USING (true);
 CREATE POLICY "Service role can access all videos" ON public.videos FOR ALL TO service_role USING (true);
+
+-- Public read access to genres (they are reference data)
+CREATE POLICY "Public read access to genres" ON public.genres FOR SELECT TO authenticated, anon USING (true);
 
 -- Authenticated users can access all data (simplified for now)
 CREATE POLICY "Authenticated users can access users" ON public.users FOR ALL TO authenticated USING (true);
