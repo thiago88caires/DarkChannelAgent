@@ -1,6 +1,6 @@
 // =================================================================
-// Dark Channel Agent - Jenkinsfile Simples
-// Pipeline básico para Jenkins sem dependência de SCM
+// Dark Channel Agent - Jenkinsfile com Git Clone
+// Pipeline que clona o repositório automaticamente
 // =================================================================
 
 pipeline {
@@ -11,6 +11,9 @@ pipeline {
         COMPOSE_DOCKER_CLI_BUILD = '1'
         APP_NAME = 'dark-channel-agent'
         APP_ENV = 'production'
+        // Configure a URL do seu repositório aqui
+        GIT_REPO_URL = 'https://github.com/thiago88caires/DarkChannelAgent_APP.git'
+        GIT_BRANCH = 'main'
     }
     
     options {
@@ -20,17 +23,44 @@ pipeline {
     }
     
     stages {
-        stage('Preparation') {
+        stage('Clone Repository') {
             steps {
                 script {
-                    echo "🚀 Iniciando build da Dark Channel Agent..."
+                    echo "📥 Clonando repositório..."
                     
                     sh '''
-                        echo "=== Informações do Ambiente ==="
+                        echo "=== Clonando Repositório ==="
+                        echo "URL: ${GIT_REPO_URL}"
+                        echo "Branch: ${GIT_BRANCH}"
                         echo "Workspace: $(pwd)"
-                        echo "Usuário: $(whoami)"
-                        echo "Data: $(date)"
-                        echo "Arquivos no workspace:"
+                        echo ""
+                        
+                        # Limpar workspace
+                        rm -rf * .* 2>/dev/null || true
+                        
+                        # Clonar repositório
+                        if command -v git >/dev/null 2>&1; then
+                            git clone -b ${GIT_BRANCH} ${GIT_REPO_URL} .
+                            echo "✅ Repositório clonado com sucesso"
+                        else
+                            echo "❌ Git não está instalado!"
+                            echo "Tentando download direto..."
+                            
+                            # Tentar download via curl/wget como fallback
+                            if command -v curl >/dev/null 2>&1; then
+                                curl -L "${GIT_REPO_URL}/archive/${GIT_BRANCH}.zip" -o repo.zip
+                                unzip repo.zip
+                                mv DarkChannelAgent_APP-${GIT_BRANCH}/* .
+                                rm -rf DarkChannelAgent_APP-${GIT_BRANCH} repo.zip
+                                echo "✅ Código baixado via curl"
+                            else
+                                echo "❌ Curl também não disponível!"
+                                exit 1
+                            fi
+                        fi
+                        
+                        echo ""
+                        echo "Arquivos baixados:"
                         ls -la
                         echo "================================"
                     '''
@@ -73,9 +103,9 @@ pipeline {
                             cat > .env << 'EOF'
 # Configurações básicas para build
 POSTGRES_PASSWORD=postgres123
-JWT_SECRET=your-super-secret-jwt-token-here
-SUPABASE_ANON_KEY=your-anon-key-here
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-here
+JWT_SECRET=your-super-secret-jwt-token-here-$(date +%s)
+SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
+SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU
 SUPABASE_PUBLIC_URL=http://localhost:54321
 SUPABASE_INTERNAL_URL=http://supabase-gateway
 SITE_URL=http://localhost:3000
@@ -96,7 +126,7 @@ SMTP_SENDER_NAME=DarkChannelAgent
 N8N_BASE_URL=http://n8n:5678
 N8N_WEBHOOK_SCREENPLAY_URL=http://n8n:5678/webhook/screenplay
 N8N_WEBHOOK_VIDEO_URL=http://n8n:5678/webhook/video
-N8N_CALLBACK_SECRET=your-callback-secret
+N8N_CALLBACK_SECRET=your-callback-secret-$(date +%s)
 PAYMENT_PROVIDER=stripe
 STRIPE_SECRET_KEY=sk_test_your_stripe_secret_key
 STRIPE_WEBHOOK_SECRET=whsec_your_webhook_secret
@@ -105,6 +135,7 @@ ALLOW_ANON=true
 ALLOW_ANON_ADMIN=false
 ADDITIONAL_REDIRECT_URLS=http://localhost:3000
 EOF
+                            echo "✅ Arquivo .env criado"
                         fi
                         
                         echo "✅ Verificação de arquivos concluída"
@@ -135,9 +166,20 @@ EOF
                     
                     sh '''
                         # Dar permissões de execução
-                        chmod +x build.sh
+                        chmod +x build.sh maintenance.sh troubleshoot.sh
+                        
+                        # Verificar espaço em disco
+                        echo "=== Verificando Recursos ==="
+                        df -h
+                        docker system df
+                        echo "=========================="
+                        
+                        # Executar troubleshooting preventivo
+                        echo "🔍 Executando verificações preventivas..."
+                        ./troubleshoot.sh || echo "Troubleshooting executado (com avisos)"
                         
                         # Executar o script de build
+                        echo "🚀 Iniciando build principal..."
                         ./build.sh
                     '''
                 }
@@ -177,7 +219,7 @@ EOF
                         
                         # Testar endpoints
                         test_endpoint "http://localhost:8080/health" "Backend"
-                        test_endpoint "http://localhost:3000" "Frontend"
+                        test_endpoint "http://localhost:3000" "Frontend"  
                         test_endpoint "http://localhost:54321/health" "Supabase"
                         
                         echo "🎉 Todos os serviços estão funcionando!"
@@ -238,7 +280,8 @@ EOF
                 sh '''
                     echo "🎉 Build concluído com sucesso!"
                     echo "Data: $(date)"
-                    echo "Workspace: $(pwd)"
+                    echo "Repositório: ${GIT_REPO_URL}"
+                    echo "Branch: ${GIT_BRANCH}"
                 '''
             }
         }
@@ -249,6 +292,9 @@ EOF
                 
                 sh '''
                     echo "=== Informações de Debug ==="
+                    echo "Workspace content:"
+                    ls -la || true
+                    echo ""
                     echo "Docker containers:"
                     docker ps -a || true
                     echo ""
@@ -271,17 +317,6 @@ EOF
                         docker compose down || true
                     fi
                 '''
-            }
-        }
-        
-        cleanup {
-            script {
-                echo "🗑️ Limpeza final do workspace..."
-                
-                // Opcional: limpeza adicional se necessário
-                // sh '''
-                //     docker system prune -f || true
-                // '''
             }
         }
     }

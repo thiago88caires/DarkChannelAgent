@@ -84,10 +84,18 @@ cleanup() {
         $DOCKER_COMPOSE_CMD down --remove-orphans
     fi
     
-    # Remover imagens antigas (opcional - pode ser comentado para builds mais rápidos)
+    # Remover imagens antigas da aplicação
     log "Removendo imagens antigas da aplicação..."
     docker image prune -f
+    
+    # Remover imagens específicas do projeto para forçar rebuild
+    docker images | grep -E "(darkchannelagent|dark-channel)" | awk '{print $3}' | xargs -r docker rmi -f 2>/dev/null || true
+    
+    # Cleanup completo do docker compose
     $DOCKER_COMPOSE_CMD down --rmi local --remove-orphans 2>/dev/null || true
+    
+    # Limpar volumes órfãos
+    docker volume prune -f
     
     success "Cleanup concluído"
 }
@@ -96,13 +104,36 @@ cleanup() {
 build_images() {
     log "Iniciando build das imagens Docker..."
     
-    # Build com cache para otimizar tempo de build
-    $DOCKER_COMPOSE_CMD build --parallel
+    # Verificar se há espaço suficiente em disco
+    available_space=$(df / | awk 'NR==2 {print $4}')
+    if [ "$available_space" -lt 2000000 ]; then
+        warning "Pouco espaço em disco disponível. Executando limpeza adicional..."
+        docker system prune -f
+        docker volume prune -f
+    fi
+    
+    # Build com cache para otimizar tempo de build, mas sem cache para troubleshooting
+    log "Executando build sem cache para garantir build limpo..."
+    $DOCKER_COMPOSE_CMD build --no-cache --parallel
     
     if [ $? -eq 0 ]; then
         success "Build das imagens concluído com sucesso"
     else
         error "Falha no build das imagens"
+        log "Tentando build individual para diagnóstico..."
+        
+        # Tentar build individual para identificar o problema
+        log "Buildando backend..."
+        $DOCKER_COMPOSE_CMD build --no-cache backend || log "Erro no build do backend"
+        
+        log "Buildando frontend..."
+        $DOCKER_COMPOSE_CMD build --no-cache frontend || log "Erro no build do frontend"
+        
+        # Mostrar logs detalhados
+        log "Verificando logs de build..."
+        docker system df
+        docker images
+        
         exit 1
     fi
 }
