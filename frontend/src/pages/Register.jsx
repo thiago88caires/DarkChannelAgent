@@ -1,5 +1,5 @@
 import React from 'react'
-import { supabase } from '../App.jsx'
+import { supabase } from '../lib/supabaseClient.js'
 import { API_BASE_URL } from '../store.js'
 
 const INITIAL_FORM = {
@@ -162,3 +162,4 @@ export default function Register() {
     </form>
   )
 }
+

@@ -1,4 +1,5 @@
 import React from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuthStore, API_BASE_URL } from '../store.js'
 import LanguageChips, { allLanguages } from '../components/LanguageChips.jsx'
 import CreditBadge from '../components/CreditBadge.jsx'
@@ -6,7 +7,35 @@ import CreditBadge from '../components/CreditBadge.jsx'
 const CHAR_OPTIONS = [2500, 3500]
 const FIXED_IMAGES = 10
 
+const emptyLangFields = () => ({
+  description: '',
+  screenplay: '',
+  structure: '',
+  style: '',
+  elements: '',
+  rules: '',
+  techniques: '',
+  lighting: ''
+})
+
+const mapGenreToFields = (record, previous = emptyLangFields()) => {
+  if (!record) return previous
+  const base = { ...emptyLangFields(), ...previous }
+  return {
+    ...base,
+    description: record.description ?? base.description,
+    screenplay: record.structure ?? record.screenplay ?? base.screenplay,
+    structure: record.structure ?? base.structure,
+    style: record.tone ?? base.style,
+    elements: record.elements ?? base.elements,
+    rules: record.composition_rules ?? base.rules,
+    techniques: record.techniques ?? base.techniques,
+    lighting: record.lighting_and_atmosphere ?? base.lighting
+  }
+}
+
 export default function CreateVideos() {
+  const navigate = useNavigate()
   const session = useAuthStore(s => s.session)
   const token = session?.access_token
   const [me, setMe] = React.useState(null)
@@ -54,7 +83,7 @@ export default function CreateVideos() {
   }, [token])
 
   async function ensureGenres(lang) {
-    if (genresByLang[lang]) return true
+    if (genresByLang[lang]) return genresByLang[lang]
     try {
       const res = await fetch(`${API_BASE_URL}/genres?lang=${encodeURIComponent(lang)}`)
       const bodyText = await res.text()
@@ -75,73 +104,44 @@ export default function CreateVideos() {
         console.warn('Resposta inesperada para generos', payload)
       }
       setGenresByLang(prev => ({ ...prev, [lang]: list }))
-      return true
+      return list
     } catch (err) {
       console.error('Erro ao buscar generos', err)
       setGenresByLang(prev => ({ ...prev, [lang]: [] }))
       setNotice(err.message || 'Falha ao carregar generos')
-      return false
+      return []
     }
   }
 
-  function onSelectGenre(value) {
+  async function onSelectGenre(value) {
     setGenre(value)
-    const next = { ...fieldsByLanguage }
+    if (!value) return
+    const updates = {}
     for (const lang of languages) {
-      const items = genresByLang[lang] || []
-      const rec = items.find(x => (x.GENRE || '').toString() === value)
-      if (!rec) continue
-      next[lang] = {
-        ...(next[lang] || {}),
-        style: rec.TONE || '',
-        elements: rec.ELEMENTS || '',
-        rules: rec['COMPOSITION RULES'] || '',
-        techniques: rec.TECHNIQUES || '',
-        lighting: rec['LIGHTING AND ATMOSPHERE'] || ''
-      }
+      const items = await ensureGenres(lang)
+      const rec = items.find(x => (x?.genre || '').toString() === value)
+      if (rec) updates[lang] = rec
     }
-    setFieldsByLanguage(next)
+    if (Object.keys(updates).length) {
+      setFieldsByLanguage(prev => {
+        const next = { ...prev }
+        for (const [lang, rec] of Object.entries(updates)) {
+          next[lang] = mapGenreToFields(rec, next[lang])
+        }
+        return next
+      })
+    }
   }
 
   function setLangField(lang, key, val) {
-    setFieldsByLanguage(prev => ({ ...prev, [lang]: { ...(prev[lang] || {}), [key]: val } }))
-  }
-
-  async function generateScript(lang) {
-    setBusy(true)
-    setNotice('')
-    try {
-      const ready = await ensureGenres(lang)
-      if (!ready) throw new Error('Falha ao carregar generos')
-      const idk = cryptoLike()
-      const payload = {
-        language: lang,
-        genre,
-        charCount,
-        images: FIXED_IMAGES,
-        style: fieldsByLanguage[lang]?.style || '',
-        elements: fieldsByLanguage[lang]?.elements || '',
-        rules: fieldsByLanguage[lang]?.rules || '',
-        techniques: fieldsByLanguage[lang]?.techniques || '',
-        lighting: fieldsByLanguage[lang]?.lighting || ''
+    setFieldsByLanguage(prev => {
+      const current = prev[lang] || emptyLangFields()
+      const updated = { ...current, [key]: val }
+      if (key === 'screenplay') {
+        updated.structure = val
       }
-      const res = await fetch(`${API_BASE_URL}/ai/screenplay`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-          'Idempotency-Key': idk
-        },
-        body: JSON.stringify(payload)
-      })
-      if (!res.ok) throw new Error('Falha ao gerar roteiro')
-      const j = await res.json()
-      setLangField(lang, 'screenplay', j.screenplay || '')
-    } catch (e) {
-      setNotice(e.message || 'Erro ao gerar roteiro')
-    } finally {
-      setBusy(false)
-    }
+      return { ...prev, [lang]: updated }
+    })
   }
 
   function isValid() {
@@ -151,9 +151,9 @@ export default function CreateVideos() {
     if (!genre) return false
     if (!languages.length) return false
     if (![2500, 3500].includes(Number(charCount))) return false
-    if (!channelId) return false
     for (const lang of languages) {
       const f = fieldsByLanguage[lang] || {}
+      if (!f.description || !f.description.trim()) return false
       if (!f.screenplay || !f.screenplay.trim()) return false
     }
     if (creditsAvailable < totalCredits) return false
@@ -172,7 +172,7 @@ export default function CreateVideos() {
         genre,
         charCount: Number(charCount),
         images: FIXED_IMAGES,
-        channelId,
+        channelId: channelId || null,
         fieldsByLanguage
       }
       const res = await fetch(`${API_BASE_URL}/videos`, {
@@ -180,10 +180,11 @@ export default function CreateVideos() {
         headers: { 'content-type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify(payload)
       })
-      const j = await res.json()
-      if (!res.ok) throw new Error(j?.message || 'Falha ao criar videos')
+      const body = await res.json()
+      if (!res.ok) throw new Error(body?.message || 'Falha ao criar videos')
       setMe(m => m ? { ...m, credits: Math.max(0, (m.credits || 0) - totalCredits) } : m)
-      setNotice(`Solicitado com sucesso. Jobs: ${j.jobIds?.length || 0}`)
+      setNotice('Solicitacao enviada. Voce sera redirecionado para os rascunhos.')
+      setTimeout(() => navigate('/videos/drafts'), 400)
     } catch (e) {
       setNotice(e.message || 'Erro ao enviar geracao')
     } finally {
@@ -222,7 +223,17 @@ export default function CreateVideos() {
         Idiomas
         <LanguageChips value={languages} onChange={async v => {
           setLanguages(v)
+          setFieldsByLanguage(prev => {
+            const next = {}
+            for (const lang of v) {
+              next[lang] = prev[lang] || emptyLangFields()
+            }
+            return next
+          })
           for (const lang of v) { await ensureGenres(lang) }
+          if (genre) {
+            onSelectGenre(genre)
+          }
         }} />
       </div>
 
@@ -240,8 +251,9 @@ export default function CreateVideos() {
           </select>
         </label>
         <label>
-          Canal YouTube
+          Canal YouTube (opcional)
           <select value={channelId} onChange={e => setChannelId(e.target.value)}>
+            <option value="">Nenhum</option>
             {(me?.channels || []).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </label>
@@ -252,7 +264,7 @@ export default function CreateVideos() {
         <select value={genre} onChange={e => onSelectGenre(e.target.value)}>
           <option value="">Selecione</option>
           {(genresByLang[languages[0] || 'pt-BR'] || []).map(g => (
-            <option key={g.GENRE} value={g.GENRE}>{g.GENRE}</option>
+            <option key={g.id || g.genre} value={g.genre}>{g.genre}</option>
           ))}
         </select>
       </label>
@@ -262,15 +274,15 @@ export default function CreateVideos() {
           <legend>{(allLanguages.find(l => l.code === lang)?.label) || lang}</legend>
           <div style={{ display: 'grid', gap: 8 }}>
             <label>
+              Descricao
+              <textarea rows={3} value={fieldsByLanguage[lang]?.description || ''}
+                        onChange={e => setLangField(lang, 'description', e.target.value)} />
+            </label>
+            <label>
               Roteiro
               <textarea rows={6} value={fieldsByLanguage[lang]?.screenplay || ''}
                         onChange={e => setLangField(lang, 'screenplay', e.target.value)} />
             </label>
-            <div>
-              <button type="button" disabled={!genre || busy} onClick={() => generateScript(lang)}>
-                Gerar roteiro com IA
-              </button>
-            </div>
             <label>
               Estilo
               <textarea rows={2} value={fieldsByLanguage[lang]?.style || ''}
@@ -303,7 +315,7 @@ export default function CreateVideos() {
       <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
         <strong>Total de creditos a utilizar: {totalCredits}</strong>
         <button type="submit" disabled={!isValid() || busy}>
-          Concordo e gerar videos
+          Gerar roteiro e dados do video
         </button>
       </div>
 
@@ -316,6 +328,14 @@ export default function CreateVideos() {
   )
 }
 
-function cryptoLike() {
-  return Math.random().toString(36).slice(2) + Date.now().toString(36)
-}
+
+
+
+
+
+
+
+
+
+
+

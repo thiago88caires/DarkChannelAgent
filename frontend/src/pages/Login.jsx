@@ -1,5 +1,5 @@
 import React from 'react'
-import { supabase } from '../App.jsx'
+import { supabase } from '../lib/supabaseClient.js'
 
 export default function Login() {
   const [email, setEmail] = React.useState('')
@@ -23,4 +23,5 @@ export default function Login() {
     </form>
   )
 }
+
 

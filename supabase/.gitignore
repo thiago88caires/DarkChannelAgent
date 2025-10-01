@@ -1,0 +1,14 @@
+# Ignore PostgreSQL data directory
+data/postgres/pgdata/*
+!data/postgres/pgdata/.gitkeep
+data/postgres/.gitkeep
+
+# Ignore SSL certificates (if recreated)
+ssl/
+
+# Ignore environment files with secrets
+.env.local
+.env.production
+
+# Ignore logs
+*.log
