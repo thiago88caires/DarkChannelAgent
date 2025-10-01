@@ -1,6 +1,6 @@
 // =================================================================
-// Dark Channel Agent - Jenkinsfile
-// Pipeline de CI/CD para Jenkins
+// Dark Channel Agent - Jenkinsfile Simples
+// Pipeline básico para Jenkins sem dependência de SCM
 // =================================================================
 
 pipeline {
@@ -20,24 +20,18 @@ pipeline {
     }
     
     stages {
-        stage('Checkout') {
+        stage('Preparation') {
             steps {
                 script {
-                    echo "🔄 Verificando workspace..."
+                    echo "🚀 Iniciando build da Dark Channel Agent..."
                     
                     sh '''
-                        echo "=== Informações do Build ==="
+                        echo "=== Informações do Ambiente ==="
                         echo "Workspace: $(pwd)"
                         echo "Usuário: $(whoami)"
                         echo "Data: $(date)"
-                        if [ -d ".git" ]; then
-                            echo "Branch: $(git branch --show-current 2>/dev/null || echo 'N/A')"
-                            echo "Commit: $(git rev-parse HEAD 2>/dev/null || echo 'N/A')"
-                            echo "Author: $(git log -1 --pretty=format:'%an <%ae>' 2>/dev/null || echo 'N/A')"
-                            echo "Message: $(git log -1 --pretty=format:'%s' 2>/dev/null || echo 'N/A')"
-                        else
-                            echo "Não é um repositório Git"
-                        fi
+                        echo "Arquivos no workspace:"
+                        ls -la
                         echo "================================"
                     '''
                 }
@@ -57,6 +51,11 @@ pipeline {
                             exit 1
                         fi
                         
+                        if [ ! -f "build.sh" ]; then
+                            echo "❌ build.sh não encontrado!"
+                            exit 1
+                        fi
+                        
                         if [ ! -f "backend/package.json" ]; then
                             echo "❌ backend/package.json não encontrado!"
                             exit 1
@@ -69,7 +68,43 @@ pipeline {
                         
                         if [ ! -f ".env" ]; then
                             echo "⚠️  Arquivo .env não encontrado!"
-                            echo "Usando variáveis de ambiente do Jenkins..."
+                            echo "Criando arquivo .env básico..."
+                            # Criar um .env básico para o build
+                            cat > .env << 'EOF'
+# Configurações básicas para build
+POSTGRES_PASSWORD=postgres123
+JWT_SECRET=your-super-secret-jwt-token-here
+SUPABASE_ANON_KEY=your-anon-key-here
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-here
+SUPABASE_PUBLIC_URL=http://localhost:54321
+SUPABASE_INTERNAL_URL=http://supabase-gateway
+SITE_URL=http://localhost:3000
+API_EXTERNAL_URL=http://localhost:54321
+PGRST_DB_SCHEMAS=public
+DISABLE_SIGNUP=false
+ENABLE_EMAIL_SIGNUP=true
+ENABLE_EMAIL_AUTOCONFIRM=true
+ENABLE_PHONE_SIGNUP=false
+ENABLE_PHONE_AUTOCONFIRM=false
+JWT_EXPIRY=3600
+SMTP_ADMIN_EMAIL=admin@example.com
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your-email@gmail.com
+SMTP_PASS=your-app-password
+SMTP_SENDER_NAME=DarkChannelAgent
+N8N_BASE_URL=http://n8n:5678
+N8N_WEBHOOK_SCREENPLAY_URL=http://n8n:5678/webhook/screenplay
+N8N_WEBHOOK_VIDEO_URL=http://n8n:5678/webhook/video
+N8N_CALLBACK_SECRET=your-callback-secret
+PAYMENT_PROVIDER=stripe
+STRIPE_SECRET_KEY=sk_test_your_stripe_secret_key
+STRIPE_WEBHOOK_SECRET=whsec_your_webhook_secret
+CREDITS_PRICE_CENTS=3000
+ALLOW_ANON=true
+ALLOW_ANON_ADMIN=false
+ADDITIONAL_REDIRECT_URLS=http://localhost:3000
+EOF
                         fi
                         
                         echo "✅ Verificação de arquivos concluída"
@@ -93,51 +128,18 @@ pipeline {
             }
         }
         
-        stage('Build & Test') {
-            parallel {
-                stage('Backend Tests') {
-                    steps {
-                        script {
-                            echo "🧪 Executando testes do backend..."
-                            
-                            dir('backend') {
-                                sh '''
-                                    echo "Verificando sintaxe do backend..."
-                                    # Aqui você pode adicionar testes específicos
-                                    # npm test || echo "Testes não configurados ainda"
-                                    echo "✅ Backend verificado"
-                                '''
-                            }
-                        }
-                    }
-                }
-                
-                stage('Frontend Tests') {
-                    steps {
-                        script {
-                            echo "🧪 Executando testes do frontend..."
-                            
-                            dir('frontend') {
-                                sh '''
-                                    echo "Verificando sintaxe do frontend..."
-                                    # Aqui você pode adicionar testes específicos
-                                    # npm test || echo "Testes não configurados ainda"
-                                    echo "✅ Frontend verificado"
-                                '''
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
         stage('Build Application') {
             steps {
                 script {
                     echo "🏗️ Construindo aplicação..."
                     
-                    sh 'chmod +x build.sh'
-                    sh './build.sh'
+                    sh '''
+                        # Dar permissões de execução
+                        chmod +x build.sh
+                        
+                        # Executar o script de build
+                        ./build.sh
+                    '''
                 }
             }
         }
@@ -152,32 +154,31 @@ pipeline {
                     sh '''
                         echo "Verificando saúde dos serviços..."
                         
-                        # Verificar backend
-                        echo "Testando backend..."
-                        curl -f http://localhost:8080/health || {
-                            echo "❌ Backend não está respondendo"
-                            docker compose logs backend 2>/dev/null || docker-compose logs backend 2>/dev/null || echo "Erro ao obter logs"
-                            exit 1
+                        # Função para testar endpoint
+                        test_endpoint() {
+                            local url=$1
+                            local name=$2
+                            local max_attempts=10
+                            local attempt=1
+                            
+                            while [ $attempt -le $max_attempts ]; do
+                                echo "Tentando conectar com $name (tentativa $attempt/$max_attempts)..."
+                                if curl -f "$url" >/dev/null 2>&1; then
+                                    echo "✅ $name está respondendo"
+                                    return 0
+                                fi
+                                sleep 5
+                                ((attempt++))
+                            done
+                            
+                            echo "❌ $name não está respondendo após $max_attempts tentativas"
+                            return 1
                         }
-                        echo "✅ Backend OK"
                         
-                        # Verificar frontend
-                        echo "Testando frontend..."
-                        curl -f http://localhost:3000 || {
-                            echo "❌ Frontend não está respondendo"
-                            docker compose logs frontend 2>/dev/null || docker-compose logs frontend 2>/dev/null || echo "Erro ao obter logs"
-                            exit 1
-                        }
-                        echo "✅ Frontend OK"
-                        
-                        # Verificar Supabase
-                        echo "Testando Supabase..."
-                        curl -f http://localhost:54321/health || {
-                            echo "❌ Supabase não está respondendo"
-                            docker compose logs supabase-gateway 2>/dev/null || docker-compose logs supabase-gateway 2>/dev/null || echo "Erro ao obter logs"
-                            exit 1
-                        }
-                        echo "✅ Supabase OK"
+                        # Testar endpoints
+                        test_endpoint "http://localhost:8080/health" "Backend"
+                        test_endpoint "http://localhost:3000" "Frontend"
+                        test_endpoint "http://localhost:54321/health" "Supabase"
                         
                         echo "🎉 Todos os serviços estão funcionando!"
                     '''
@@ -185,20 +186,18 @@ pipeline {
             }
         }
         
-        stage('Deploy') {
-            when {
-                anyOf {
-                    branch 'main'
-                    branch 'master'
-                }
-            }
+        stage('Deploy Status') {
             steps {
                 script {
-                    echo "🚀 Iniciando deploy..."
+                    echo "🚀 Mostrando status da aplicação..."
                     
                     sh '''
                         echo "=== Status Final da Aplicação ==="
-                        docker compose ps 2>/dev/null || docker-compose ps 2>/dev/null || echo "Erro ao obter status"
+                        if command -v docker-compose >/dev/null 2>&1; then
+                            docker-compose ps
+                        else
+                            docker compose ps
+                        fi
                         echo ""
                         echo "URLs de acesso:"
                         echo "  Frontend:        http://localhost:3000"
@@ -237,9 +236,9 @@ pipeline {
                 echo "✅ Pipeline executado com sucesso!"
                 
                 sh '''
-                    echo "🎉 Build #${BUILD_NUMBER} foi executado com sucesso!"
-                    echo "Branch: ${GIT_BRANCH}"
-                    echo "Commit: ${GIT_COMMIT}"
+                    echo "🎉 Build concluído com sucesso!"
+                    echo "Data: $(date)"
+                    echo "Workspace: $(pwd)"
                 '''
             }
         }
@@ -257,10 +256,21 @@ pipeline {
                     docker images || true
                     echo ""
                     echo "Docker compose status:"
-                    docker compose ps 2>/dev/null || docker-compose ps 2>/dev/null || echo "Docker Compose não disponível"
+                    if command -v docker-compose >/dev/null 2>&1; then
+                        docker-compose ps || true
+                    else
+                        docker compose ps || true
+                    fi
                 '''
                 
-                sh 'docker compose down 2>/dev/null || docker-compose down 2>/dev/null || true'
+                sh '''
+                    echo "Fazendo cleanup de emergência..."
+                    if command -v docker-compose >/dev/null 2>&1; then
+                        docker-compose down || true
+                    else
+                        docker compose down || true
+                    fi
+                '''
             }
         }
         
@@ -268,10 +278,8 @@ pipeline {
             script {
                 echo "🗑️ Limpeza final do workspace..."
                 
-                // Opcional: remover containers e imagens para economizar espaço
-                // Descomente se necessário
+                // Opcional: limpeza adicional se necessário
                 // sh '''
-                //     docker-compose down --rmi local --remove-orphans || true
                 //     docker system prune -f || true
                 // '''
             }

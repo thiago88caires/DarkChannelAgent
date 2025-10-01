@@ -7,6 +7,9 @@
 
 set -e  # Exit on any error
 
+# Comando Docker Compose (será definido pela função check_docker)
+DOCKER_COMPOSE_CMD="docker-compose"
+
 # Cores para output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -45,12 +48,17 @@ check_docker() {
         exit 1
     fi
     
-    if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/null; then
+    # Verificar Docker Compose (preferência para docker compose)
+    if command -v docker &> /dev/null && docker compose version &> /dev/null; then
+        DOCKER_COMPOSE_CMD="docker compose"
+        success "Docker e Docker Compose (v2) estão funcionando corretamente"
+    elif command -v docker-compose &> /dev/null; then
+        DOCKER_COMPOSE_CMD="docker-compose"
+        success "Docker e Docker Compose (v1) estão funcionando corretamente"
+    else
         error "Docker Compose não está instalado!"
         exit 1
     fi
-    
-    success "Docker está funcionando corretamente"
 }
 
 # Verificar se arquivo .env existe
@@ -71,15 +79,15 @@ cleanup() {
     log "Limpando containers e imagens antigas..."
     
     # Parar todos os containers se estiverem rodando
-    if docker-compose ps -q | grep -q .; then
+    if $DOCKER_COMPOSE_CMD ps -q | grep -q .; then
         warning "Parando containers existentes..."
-        docker-compose down --remove-orphans
+        $DOCKER_COMPOSE_CMD down --remove-orphans
     fi
     
     # Remover imagens antigas (opcional - pode ser comentado para builds mais rápidos)
     log "Removendo imagens antigas da aplicação..."
     docker image prune -f
-    docker-compose down --rmi local --remove-orphans 2>/dev/null || true
+    $DOCKER_COMPOSE_CMD down --rmi local --remove-orphans 2>/dev/null || true
     
     success "Cleanup concluído"
 }
@@ -89,7 +97,7 @@ build_images() {
     log "Iniciando build das imagens Docker..."
     
     # Build com cache para otimizar tempo de build
-    docker-compose build --parallel
+    $DOCKER_COMPOSE_CMD build --parallel
     
     if [ $? -eq 0 ]; then
         success "Build das imagens concluído com sucesso"
@@ -134,7 +142,7 @@ wait_for_services() {
         log "Tentativa $attempt/$max_attempts - Verificando status dos serviços..."
         
         # Verificar se todos os serviços com healthcheck estão healthy
-        if docker-compose ps | grep -E "(healthy|Up)" | wc -l | grep -q "$(docker-compose config --services | wc -l)"; then
+        if $DOCKER_COMPOSE_CMD ps | grep -E "(healthy|Up)" | wc -l | grep -q "$($DOCKER_COMPOSE_CMD config --services | wc -l)"; then
             success "Todos os serviços estão funcionando!"
             return 0
         fi
@@ -144,7 +152,7 @@ wait_for_services() {
     done
     
     error "Timeout: Serviços não ficaram saudáveis em tempo hábil"
-    docker-compose logs
+    $DOCKER_COMPOSE_CMD logs
     exit 1
 }
 
@@ -153,7 +161,7 @@ start_application() {
     log "Iniciando aplicação..."
     
     # Subir todos os serviços
-    docker-compose up -d
+    $DOCKER_COMPOSE_CMD up -d
     
     if [ $? -eq 0 ]; then
         success "Aplicação iniciada com sucesso"
@@ -161,7 +169,7 @@ start_application() {
         wait_for_services
     else
         error "Falha ao iniciar aplicação"
-        docker-compose logs
+        $DOCKER_COMPOSE_CMD logs
         exit 1
     fi
 }
@@ -170,7 +178,7 @@ start_application() {
 show_status() {
     log "Status da aplicação:"
     echo ""
-    docker-compose ps
+    $DOCKER_COMPOSE_CMD ps
     echo ""
     log "URLs de acesso:"
     echo "  Frontend:        http://localhost:3000"
@@ -231,7 +239,7 @@ main() {
 }
 
 # Tratamento de erros
-trap 'error "Script interrompido! Executando cleanup..."; docker-compose down' INT TERM ERR
+trap 'error "Script interrompido! Executando cleanup..."; $DOCKER_COMPOSE_CMD down' INT TERM ERR
 
 # Executar função principal
 main "$@"
